@@ -58,7 +58,7 @@ format:
 
 build:
 	mkdir -p dist/${APP_NAME}_build ${OUTPUT_DIR}
-	rsync -av go.mod go.sum Makefile.tools gitlab/build/ dist/${APP_NAME}_build
+	rsync -av go.mod go.sum Makefile.tools gitlab/build_container/ dist/${APP_NAME}_build
 	tar -z -c -f dist/${APP_NAME}_build/src.tar.gz \
 		--exclude './dist/*' \
 		--exclude './vendor/*' \

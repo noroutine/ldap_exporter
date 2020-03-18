@@ -48,6 +48,8 @@ all: clean build
 clean:
 	rm -rf ${DIST_DIR}
 
+include Makefile.tools
+
 compile = GOOS=${1} GOARCH=amd64 go build ${BUILD_FLAGS} -o ${OUTPUT_DIR}/${APP_NAME}-${1}-${VERSION} ./app/main
 
 format:

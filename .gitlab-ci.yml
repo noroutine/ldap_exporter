@@ -7,6 +7,7 @@ stages:
 dev:
   stage: build
   script:
+    - source gitlab/env.sh
     - BUILD_TYPE=dev make build upload-nexus upload-nfs
 
 #  artifacts:
@@ -17,6 +18,7 @@ dev:
 release:
   stage: build
   script:
+    - source gitlab/env.sh
     - BUILD_TYPE=release make build upload-nexus upload-nfs
 
 #  artifacts:

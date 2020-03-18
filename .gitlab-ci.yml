@@ -2,7 +2,13 @@
 image: bo01-vm-nexus01.node.bo01.noroutine.me:5000/builder:2020.03.1
 
 stages:
+  - preflight
   - build
+
+import-images:
+  stage: preflight
+  script:
+    - make import-images
 
 dev:
   stage: build

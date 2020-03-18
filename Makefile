@@ -7,7 +7,7 @@ TEMPDIR := $(shell mktemp -d)
 SHELL := /bin/bash -ex
 
 export DOCKER_HUB ?= bo01-vm-nexus01.node.bo01.noroutine.me:5000
-export GO_VERSION ?= 1.13.4
+export GO_VERSION ?= 1.14
 export NEXUS_REPO_URL ?= https://bo01-vm-nexus01.node.bo01.noroutine.me
 
 BUILD_TYPE ?= dev
@@ -36,6 +36,8 @@ GC_FLAGS = -gcflags "all=-N -l"
 DIST_DIR ?= ${PWD}/dist
 OUTPUT_DIR ?= ${DIST_DIR}/${BUILD_TYPE}
 
+CI_JOB_ID ?= $(shell openssl rand -hex 4)
+
 DOCKER_ID := ${APP_NAME}-build-${CI_JOB_ID}
 DOCKER_TAG := ${APP_NAME}-build:${CI_JOB_ID}
 
@@ -53,6 +55,36 @@ format:
 	@goimports -w -local github.com/tomcz/openldap_exporter $(shell find . -type f -name '*.go' | grep -v '/vendor/')
 
 build:
+	mkdir -p dist/${APP_NAME}_build ${OUTPUT_DIR}
+	rsync -av go.mod go.sum Makefile.tools gitlab/build/ dist/${APP_NAME}_build
+	tar -z -c -f dist/${APP_NAME}_build/src.tar.gz \
+		--exclude './dist/*' \
+		--exclude './vendor/*' \
+		--exclude './.git/*' \
+		--exclude './_tools/*' \
+		--exclude './.idea/*' \
+		.
+
+	docker build \
+		--tag ${DOCKER_TAG} \
+		--build-arg GO_VERSION=${GO_VERSION} \
+		--build-arg DOCKER_HUB=${DOCKER_HUB} \
+		dist/${APP_NAME}_build
+
+	docker rm ${DOCKER_ID} || true
+	docker run --name ${DOCKER_ID} \
+		-e APP_NAME=${APP_NAME} \
+		-e USER_EMAIL=${USER_EMAIL} \
+		-e BUILD_HASH=${BUILD_HASH} \
+		-e BUILD_TYPE=${BUILD_TYPE} \
+		-e BUILD_HOST=${BUILD_HOST} \
+		-e OUTPUT_DIR=/dist \
+		-w /go/src/nrtn.io/ldap_exporter ${DOCKER_TAG} make build-local
+
+	docker cp ${DOCKER_ID}:/dist/. ${OUTPUT_DIR}/
+	docker rm ${DOCKER_ID}
+
+build-local:
 	mkdir -p ${OUTPUT_DIR}
 	$(call compile,linux)
 	$(call compile,darwin)

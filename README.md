@@ -112,12 +112,45 @@ INTERVAL=10s /usr/sbin/openldap_exporter --promAddr ":8080" --config /etc/slapd/
 Where `exporter.yaml` looks like this:
 
 ```yaml
----
 ldapUser: "cn=monitoring,cn=Monitor"
 ldapPass: "sekret"
 ```
 
 ## Build
+
+```
+Usage of ./openldap_exporter-linux:
+  -interval duration
+    	Scrape interval (default 30s)
+  -ldapAddr string
+    	Address of OpenLDAP server (default "ldap://localhost:389")
+  -ldapUser string
+    	OpenLDAP bind username (optional)
+  -ldapPass string
+    	OpenLDAP bind password (optional)
+  -ldapStartTLS
+    	Use start TLS (optional)
+  -ldapCACrt string
+    	Path to CA certificate for LDAPS (optional)
+  -promAddr string
+    	Bind address for prometheus HTTP metrics server (default ":9330")
+  -promCrt string
+        Path to PEM Certificate (chain) file to run metrics server in https mode (optional, required if CrtKey is used)   
+  -promCrtKey string
+        Path to PEM Certificate Key file to run metrics server in https mode (optional, required if Crt is used)         
+  -version
+    	Show version and exit
+```
+
+`-ldapAddr` supports `ldaps://` and `ldap://` scheme uri's. (defaults to ldap:// scheme)  
+using the LDAPS scheme will open a connection using TLS.  
+To use StartTLS use ldap:// scheme and the command line flag `-ldapStartTLS`
+
+`-ldapCACrt` if the ldap server uses a custom CA certificate, add the path to the public CA Cert in PEM format  
+
+
+## Building the exporter
+
 
 1. Install Go 1.13 from https://golang.org/
 2. Build the binaries: `make build`

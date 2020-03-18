@@ -1,4 +1,4 @@
-module github.com/tomcz/openldap_exporter
+module nrtn.io/ldap_exporter
 
 go 1.13
 

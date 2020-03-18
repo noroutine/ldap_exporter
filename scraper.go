@@ -1,4 +1,4 @@
-package openldap_exporter
+package ldap_exporter
 
 import (
 	"crypto/tls"

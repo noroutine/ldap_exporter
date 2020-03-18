@@ -1,0 +1,25 @@
+---
+image: bo01-vm-nexus01.node.bo01.noroutine.me:5000/builder:2020.03.1
+
+stages:
+  - build
+
+dev:
+  stage: build
+  script:
+    - BUILD_TYPE=dev make build upload-nexus upload-nfs
+
+#  artifacts:
+#    name: unicli-dev-${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}
+#    paths:
+#      - dist/dev/unicli
+
+release:
+  stage: build
+  script:
+    - BUILD_TYPE=release make build upload-nexus upload-nfs
+
+#  artifacts:
+#    name: unicli-dev-${CI_COMMIT_REF_NAME}-${CI_COMMIT_SHORT_SHA}
+#    paths:
+#      - dist/release/unicli

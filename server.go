@@ -1,23 +1,18 @@
-package openldap_exporter
+package ldap_exporter
 
 import (
 	"fmt"
+	"nrtn.io/ldap_exporter/app/build"
 	"log"
 	"net/http"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-var version string
-
 type ServerConfig struct {
 	Address  string
 	CertFile string
 	KeyFile  string
-}
-
-func GetVersion() string {
-	return version
 }
 
 func NewServerConfig() *ServerConfig {
@@ -48,5 +43,5 @@ func showVersion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = fmt.Fprintln(w, version)
+	_, _ = fmt.Fprintln(w, build.ShortVersionString())
 }

@@ -1,7 +1,7 @@
 APP_NAME ?= ldap-exporter
 PROJECT_NAME ?= ldap-exporter
 EXPORTER_VERSION=0.0.1
-VERSION=${EXPORTER_VERSION}-1
+VERSION=${EXPORTER_VERSION}-5
 ARCH=amd64
 TEMPDIR := $(shell mktemp -d)
 SHELL := /bin/bash -ex
@@ -40,6 +40,8 @@ CI_JOB_ID ?= $(shell openssl rand -hex 4)
 
 DOCKER_ID := ${APP_NAME}-build-${CI_JOB_ID}
 DOCKER_TAG := ${APP_NAME}-build:${CI_JOB_ID}
+
+DOCKER_DIST_TAG := noroutine/${APP_NAME}:${VERSION}-${BUILD_TYPE}
 
 .PHONY: all
 
@@ -85,6 +87,16 @@ build:
 
 	docker cp ${DOCKER_ID}:/dist/. ${OUTPUT_DIR}/
 	docker rm ${DOCKER_ID}
+
+dist: build
+	mkdir -p dist/${APP_NAME}_dist
+	rsync -av gitlab/dist_container/ dist/${APP_NAME}_dist
+	rsync -av ${OUTPUT_DIR}/${APP_NAME}-linux-${VERSION} dist/${APP_NAME}_dist/${APP_NAME}-linux
+
+	docker build \
+		--tag ${DOCKER_DIST_TAG} \
+		--build-arg DOCKER_HUB=${DOCKER_HUB} \
+		dist/${APP_NAME}_dist
 
 build-local:
 	mkdir -p ${OUTPUT_DIR}

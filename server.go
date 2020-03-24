@@ -23,6 +23,7 @@ func StartMetricsServer(config *ServerConfig) {
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/version", showVersion)
+	mux.HandleFunc("/-/healthy", healthCheck)
 
 	var err error
 
@@ -44,4 +45,13 @@ func showVersion(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	_, _ = fmt.Fprintln(w, build.ShortVersionString())
+}
+
+func healthCheck(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	_, _ = fmt.Fprintln(w, "OK")
 }

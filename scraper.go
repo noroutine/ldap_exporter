@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/prometheus/client_golang/prometheus"
@@ -18,8 +19,8 @@ import (
 )
 
 const (
-	baseDN    = "cn=Monitor"
-	opsBaseDN = "cn=Operations,cn=Monitor"
+	monitorBaseDN    = "cn=Monitor"
+	operationsBaseDN = "cn=Operations,cn=Monitor"
 
 	monitorCounterObject = "monitorCounterObject"
 	monitorCounter       = "monitorCounter"
@@ -30,16 +31,22 @@ const (
 	monitorOperation   = "monitorOperation"
 	monitorOpCompleted = "monitorOpCompleted"
 
+	posixAccount = "posixAccount"
+	uid = "uid"
+
 	SchemeLDAPS = "ldaps"
 	SchemeLDAP  = "ldap"
 	SchemeLDAPI = "ldapi"
 )
 
 type query struct {
-	baseDN       string
-	searchFilter string
-	searchAttr   string
-	metric       *prometheus.GaugeVec
+	baseDN              string
+	searchFilter        string
+	searchAttr          string
+	ignoreErrors        bool
+	metric              *prometheus.GaugeVec
+	countMetric         *prometheus.GaugeVec
+	queryDurationMetric *prometheus.GaugeVec
 }
 
 type LDAPConfig struct {
@@ -52,6 +59,7 @@ type LDAPConfig struct {
 	Protocol    string
 	Username    string
 	Password    string
+	BaseDN      string
 	TLSConfig   tls.Config
 }
 
@@ -143,56 +151,52 @@ func NewLDAPConfig() LDAPConfig {
 var (
 	monitoredObjectGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Subsystem: "openldap",
+			Subsystem: "ldap",
 			Name:      "monitored_object",
-			Help:      baseDN + " " + objectClass(monitoredObject) + " " + monitoredInfo,
+			Help:      monitorBaseDN + " " + objectClass(monitoredObject) + " " + monitoredInfo,
 		},
 		[]string{"dn"},
 	)
 	monitorCounterObjectGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Subsystem: "openldap",
+			Subsystem: "ldap",
 			Name:      "monitor_counter_object",
-			Help:      baseDN + " " + objectClass(monitorCounterObject) + " " + monitorCounter,
+			Help:      monitorBaseDN + " " + objectClass(monitorCounterObject) + " " + monitorCounter,
 		},
 		[]string{"dn"},
 	)
 	monitorOperationGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Subsystem: "openldap",
+			Subsystem: "ldap",
 			Name:      "monitor_operation",
-			Help:      opsBaseDN + " " + objectClass(monitorOperation) + " " + monitorOpCompleted,
+			Help:      operationsBaseDN + " " + objectClass(monitorOperation) + " " + monitorOpCompleted,
+		},
+		[]string{"dn"},
+	)
+	posixAccountCountGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: "ldap",
+			Name:      "posix_account_count",
+			Help:      objectClass(posixAccount) + " count",
+		},
+		[]string{"dn"},
+	)
+	posixAccountQueryDurationGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: "ldap",
+			Name:      "posix_account_query_duration",
+			Help:      objectClass(posixAccount) + " query duration",
 		},
 		[]string{"dn"},
 	)
 	scrapeCounter = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Subsystem: "openldap",
+			Subsystem: "ldap",
 			Name:      "scrape",
 			Help:      "successful vs unsuccessful ldap scrape attempts",
 		},
 		[]string{"result"},
 	)
-	queries = []query{
-		{
-			baseDN:       baseDN,
-			searchFilter: objectClass(monitoredObject),
-			searchAttr:   monitoredInfo,
-			metric:       monitoredObjectGauge,
-		},
-		{
-			baseDN:       baseDN,
-			searchFilter: objectClass(monitorCounterObject),
-			searchAttr:   monitorCounter,
-			metric:       monitorCounterObjectGauge,
-		},
-		{
-			baseDN:       opsBaseDN,
-			searchFilter: objectClass(monitorOperation),
-			searchAttr:   monitorOpCompleted,
-			metric:       monitorOperationGauge,
-		},
-	}
 )
 
 func init() {
@@ -200,6 +204,8 @@ func init() {
 		monitoredObjectGauge,
 		monitorCounterObjectGauge,
 		monitorOperationGauge,
+		posixAccountCountGauge,
+		posixAccountQueryDurationGauge,
 		scrapeCounter,
 	)
 }
@@ -210,7 +216,13 @@ func objectClass(name string) string {
 
 func ScrapeMetrics(config *LDAPConfig) {
 	if err := scrapeAll(config); err != nil {
-		scrapeCounter.WithLabelValues("fail").Inc()
+		resultLabelValue := "fail"
+		if ldapErr, ok := err.(*ldap.Error); ok {
+			switch ldapErr.ResultCode {
+			case ldap.LDAPResultTimeLimitExceeded: resultLabelValue = "timeout"
+			}
+		}
+		scrapeCounter.WithLabelValues(resultLabelValue).Inc()
 		log.Println("scrape failed, error is:", err)
 	} else {
 		scrapeCounter.WithLabelValues("ok").Inc()
@@ -221,6 +233,44 @@ func scrapeAll(config *LDAPConfig) error {
 
 	var l *ldap.Conn
 	var err error
+
+	var queries = []query{
+		{
+			baseDN:       monitorBaseDN,
+			searchFilter: objectClass(monitoredObject),
+			searchAttr:   monitoredInfo,
+			metric:       monitoredObjectGauge,
+			ignoreErrors: true,
+		},
+		{
+			baseDN:       monitorBaseDN,
+			searchFilter: objectClass(monitorCounterObject),
+			searchAttr:   monitorCounter,
+			metric:       monitorCounterObjectGauge,
+			ignoreErrors: true,
+		},
+		{
+			baseDN:       operationsBaseDN,
+			searchFilter: objectClass(monitorOperation),
+			searchAttr:   monitorOpCompleted,
+			metric:       monitorOperationGauge,
+			ignoreErrors: true,
+		},
+		{
+			baseDN:              config.BaseDN,
+			searchFilter:        objectClass(posixAccount),
+			searchAttr:          uid,
+			countMetric:         posixAccountCountGauge,
+			queryDurationMetric: posixAccountQueryDurationGauge,
+			ignoreErrors:        false,
+		},
+	}
+
+	defer func() {
+		if err != nil {
+			posixAccountQueryDurationGauge.WithLabelValues(config.BaseDN).Set(0)
+		}
+	}()
 
 	if config.UseTLS {
 		l, err = ldap.DialTLS(config.Protocol, config.Addr, &config.TLSConfig)
@@ -259,26 +309,48 @@ func scrapeAll(config *LDAPConfig) error {
 }
 
 func scrapeQuery(l *ldap.Conn, q *query) error {
+	var queryErr error
+
 	req := ldap.NewSearchRequest(
-		q.baseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 0, false,
+		q.baseDN, ldap.ScopeWholeSubtree, ldap.NeverDerefAliases, 0, 1, false,
 		q.searchFilter, []string{"dn", q.searchAttr}, nil,
 	)
-	sr, err := l.Search(req)
-	if err != nil {
-		return err
+
+	queryStart := time.Now()
+	defer func() {
+		queryDuration := time.Now().Sub(queryStart)
+		if q.queryDurationMetric != nil {
+			q.queryDurationMetric.WithLabelValues(q.baseDN).Set(float64(queryDuration.Nanoseconds()))
+		}
+	}()
+
+	sr, queryErr := l.Search(req)
+	if queryErr != nil {
+		if q.ignoreErrors {
+			return nil
+		} else {
+			return queryErr
+		}
 	}
-	for _, entry := range sr.Entries {
-		val := entry.GetAttributeValue(q.searchAttr)
-		if val == "" {
-			// not every entry will have this attribute
-			continue
+
+	if q.countMetric != nil {
+		q.countMetric.WithLabelValues(q.baseDN).Set(float64(len(sr.Entries)))
+	}
+
+	if q.metric != nil {
+		for _, entry := range sr.Entries {
+			val := entry.GetAttributeValue(q.searchAttr)
+			if val == "" {
+				// not every entry will have this attribute
+				continue
+			}
+			num, err := strconv.ParseFloat(val, 64)
+			if err != nil {
+				// some of these attributes are not numbers
+				continue
+			}
+			q.metric.WithLabelValues(entry.DN).Set(num)
 		}
-		num, err := strconv.ParseFloat(val, 64)
-		if err != nil {
-			// some of these attributes are not numbers
-			continue
-		}
-		q.metric.WithLabelValues(entry.DN).Set(num)
 	}
 	return nil
 }

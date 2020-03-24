@@ -53,6 +53,7 @@ line() {
 
 import_images() {
     declare -a images=(
+        "debian:10.3-slim"
         "golang:1.14-buster"
     )
 
